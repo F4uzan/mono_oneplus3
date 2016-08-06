@@ -31,6 +31,7 @@
 *.lz4
 *.lzo
 *.patch
+*.diff
 *.gcno
 modules.builtin
 Module.symvers
