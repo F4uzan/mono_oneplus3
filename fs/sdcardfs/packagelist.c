@@ -238,7 +238,7 @@ static int read_package_list(struct packagelist_data *pkgl_dat) {
 	fd = sys_open(kpackageslist_file, O_RDONLY, 0);
 	if (fd < 0) {
 		printk(KERN_ERR "sdcardfs: failed to open package list\n");
-		mutex_unlock(&pkgl_dat->hashtable_lock);
+		spin_unlock(&pkgl_dat->hashtable_lock);
 		return fd;
 	}
 
@@ -265,7 +265,7 @@ static int read_package_list(struct packagelist_data *pkgl_dat) {
 			ret = insert_str_to_int_lock(pkgl_dat, pkgl_dat->app_name_buf, appid);
 			if (ret) {
 				sys_close(fd);
-				mutex_unlock(&pkgl_dat->hashtable_lock);
+				spin_unlock(&pkgl_dat->hashtable_lock);
 				return ret;
 			}
 		}
