@@ -12,7 +12,7 @@ config SDCARD_FS_FADV_NOACTIVE
 	help
 	  Sdcardfs supports fadvise noactive mode.
 
-config CONFIG_SDCARD_FS_ANDROID_PKGLIST
+config SDCARD_FS_ANDROID_PKGLIST
 	bool "Read Android packages.list from filesystem"
 	depends on SDCARD_FS
 	default y
