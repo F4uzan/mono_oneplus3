@@ -133,8 +133,8 @@ static const struct xpad_device {
 	{ 0x045e, 0x028e, "Microsoft X-Box 360 pad", 0, XTYPE_XBOX360 },
 	{ 0x045e, 0x02d1, "Microsoft X-Box One pad", 0, XTYPE_XBOXONE },
 	{ 0x045e, 0x02dd, "Microsoft X-Box One pad (Firmware 2015)", 0, XTYPE_XBOXONE },
-	{ 0x045e, 0x02ea, "Microsoft X-Box One S pad", 0, XTYPE_XBOXONE },
 	{ 0x045e, 0x02e3, "Microsoft X-Box One Elite pad", 0, XTYPE_XBOXONE },
+	{ 0x045e, 0x02ea, "Microsoft X-Box One S pad", 0, XTYPE_XBOXONE },
 	{ 0x045e, 0x0291, "Xbox 360 Wireless Receiver (XBOX)", MAP_DPAD_TO_BUTTONS, XTYPE_XBOX360W },
 	{ 0x045e, 0x0719, "Xbox 360 Wireless Receiver", MAP_DPAD_TO_BUTTONS, XTYPE_XBOX360W },
 	{ 0x044f, 0x0f07, "Thrustmaster, Inc. Controller", 0, XTYPE_XBOX },
@@ -233,55 +233,54 @@ static const struct xpad_device {
 	{ 0x0000, 0x0000, "Generic X-Box pad", 0, XTYPE_UNKNOWN }
 };
 
-/* buttons shared with all xbox compatible controllers */
-static const signed short xpad_btn_common[] = {
-	BTN_A, BTN_B, BTN_X, BTN_Y,						/* coloured buttons */
+/* buttons shared with xbox and xbox360 */
+static const signed short xpad_common_btn[] = {
+	BTN_A, BTN_B, BTN_X, BTN_Y,			/* "analog" buttons */
 	BTN_START, BTN_SELECT, BTN_THUMBL, BTN_THUMBR,	/* start/back/sticks */
-	-1												/* terminating entry */
+	-1						/* terminating entry */
+};
+
+/* original xbox controllers only */
+static const signed short xpad_btn[] = {
+	BTN_C, BTN_Z,		/* "analog" buttons */
+	-1			/* terminating entry */
 };
 
 /* used when dpad is mapped to buttons */
-static const signed short xpad_btn_dpad[] = {
+static const signed short xpad_btn_pad[] = {
 	BTN_TRIGGER_HAPPY1, BTN_TRIGGER_HAPPY2,		/* d-pad left, right */
 	BTN_TRIGGER_HAPPY3, BTN_TRIGGER_HAPPY4,		/* d-pad up, down */
-	-1											/* terminating entry */
+	-1				/* terminating entry */
 };
 
 /* used when triggers are mapped to buttons */
 static const signed short xpad_btn_triggers[] = {
 	BTN_TL2, BTN_TR2,		/* triggers left/right */
-	-1						/* terminating entry */
+	-1
 };
 
-/* original xbox controllers only */
-static const signed short xpad_btn_original[] = {
-	BTN_C, BTN_Z,		/* "analog" buttons */
-	-1					/* terminating entry */
+static const signed short xpad360_btn[] = {  /* buttons for x360 controller */
+	BTN_TL, BTN_TR,		/* Button LB/RB */
+	BTN_MODE,		/* The big X button */
+	-1
 };
 
-/* buttons for xbox 360 and xbox one controllers */
-static const signed short xpad_btn_360[] = {
-	BTN_TL, BTN_TR,		/* Button LBumper/RBumper */
-	BTN_MODE,			/* The big X button */
-	-1					/* terminating entry */
-};
-
-static const signed short xpad_abs_sticks[] = {
+static const signed short xpad_abs[] = {
 	ABS_X, ABS_Y,		/* left stick */
 	ABS_RX, ABS_RY,		/* right stick */
-	-1					/* terminating entry */
+	-1			/* terminating entry */
 };
 
 /* used when dpad is mapped to axes */
-static const signed short xpad_abs_dpad[] = {
+static const signed short xpad_abs_pad[] = {
 	ABS_HAT0X, ABS_HAT0Y,	/* d-pad axes */
-	-1						/* terminating entry */
+	-1			/* terminating entry */
 };
 
 /* used when triggers are mapped to axes */
 static const signed short xpad_abs_triggers[] = {
 	ABS_Z, ABS_RZ,		/* triggers left/right */
-	-1					/* terminating entry */
+	-1
 };
 
 /*
@@ -390,6 +389,7 @@ struct usb_xpad {
 
 static int xpad_init_input(struct usb_xpad *xpad);
 static void xpad_deinit_input(struct usb_xpad *xpad);
+static void xpadone_ack_mode_report(struct usb_xpad *xpad, u8 seq_num);
 
 /*
  *	xpad_process_packet
@@ -609,28 +609,14 @@ static void xpad360w_process_packet(struct usb_xpad *xpad, u16 cmd, unsigned cha
 }
 
 /*
- *	xpadone_process_packet
+ *	xpadone_process_buttons
  *
- *	Completes a request by converting the data into events for the
- *	input subsystem. This version is for the Xbox One controller.
- *
- *	The report format was gleaned from
- *	https://github.com/kylelemons/xbox/blob/master/xbox.go
+ *	Process a button update packet from an Xbox one controller.
  */
-static void xpadone_process_packet(struct usb_xpad *xpad, u16 cmd, unsigned char *data)
+static void xpadone_process_buttons(struct usb_xpad *xpad,
+				struct input_dev *dev,
+				unsigned char *data)
 {
-	struct input_dev *dev = xpad->dev;
-
-	/* the xbox button has its own special report */
-	if (data[0] == 0X07) {
-		input_report_key(dev, BTN_MODE, data[4] & 0x01);
-		input_sync(dev);
-		return;
-	}
-	/* check invalid packet */
-	else if (data[0] != 0X20)
-		return;
-
 	/* menu/view buttons */
 	input_report_key(dev, BTN_START,  data[4] & 0x04);
 	input_report_key(dev, BTN_SELECT, data[4] & 0x08);
@@ -691,6 +677,42 @@ static void xpadone_process_packet(struct usb_xpad *xpad, u16 cmd, unsigned char
 	}
 
 	input_sync(dev);
+}
+
+/*
+ *	xpadone_process_packet
+ *
+ *	Completes a request by converting the data into events for the
+ *	input subsystem. This version is for the Xbox One controller.
+ *
+ *	The report format was gleaned from
+ *	https://github.com/kylelemons/xbox/blob/master/xbox.go
+ */
+
+static void xpadone_process_packet(struct usb_xpad *xpad,
+				u16 cmd, unsigned char *data)
+{
+	struct input_dev *dev = xpad->dev;
+
+	switch (data[0]) {
+	case 0x20:
+		xpadone_process_buttons(xpad, dev, data);
+		break;
+
+	case 0x07:
+		/*
+		 * The Xbox One S controller requires these reports to be
+		 * acked otherwise it continues sending them forever and
+		 * won't report further mode button events.
+		 */
+		if (data[1] == 0x30)
+			xpadone_ack_mode_report(xpad, data[2]);
+
+		/* the xbox button has its own special report */
+		input_report_key(dev, BTN_MODE, data[4] & 0x01);
+		input_sync(dev);
+		break;
+	}
 }
 
 static void xpad_irq_in(struct urb *urb)
@@ -963,6 +985,30 @@ static int xpad_start_xbox_one(struct usb_xpad *xpad)
 	return retval;
 }
 
+static void xpadone_ack_mode_report(struct usb_xpad *xpad, u8 seq_num)
+{
+	unsigned long flags;
+	struct xpad_output_packet *packet =
+			&xpad->out_packets[XPAD_OUT_CMD_IDX];
+	static const u8 mode_report_ack[] = {
+		0x01, 0x20, 0x00, 0x09, 0x00, 0x07, 0x20, 0x02,
+		0x00, 0x00, 0x00, 0x00, 0x00
+	};
+
+	spin_lock_irqsave(&xpad->odata_lock, flags);
+
+	packet->len = sizeof(mode_report_ack);
+	memcpy(packet->data, mode_report_ack, packet->len);
+	packet->data[2] = seq_num;
+	packet->pending = true;
+
+	/* Reset the sequence so we send out the ack now */
+	xpad->last_out_packet = -1;
+	xpad_try_sending_next_out_packet(xpad);
+
+	spin_unlock_irqrestore(&xpad->odata_lock, flags);
+}
+
 #ifdef CONFIG_JOYSTICK_XPAD_FF
 static int xpad_play_effect(struct input_dev *dev, void *data, struct ff_effect *effect)
 {
@@ -1034,9 +1080,9 @@ static int xpad_play_effect(struct input_dev *dev, void *data, struct ff_effect 
 		packet->data[7] = 0x00;
 		packet->data[8] = strong / 512;	/* left actuator */
 		packet->data[9] = weak / 512;	/* right actuator */
-		packet->data[10] = 0xFF;
-		packet->data[11] = 0x00;
-		packet->data[12] = 0x00;
+		packet->data[10] = 0xFF; /* on period */
+		packet->data[11] = 0x00; /* off period */
+		packet->data[12] = 0xFF; /* repeat count */
 		packet->len = 13;
 		packet->pending = true;
 		break;
@@ -1370,7 +1416,7 @@ static int xpad_init_input(struct usb_xpad *xpad)
 
 	input_set_drvdata(input_dev, xpad);
 
-	if (xpad->xtype != XTYPE_XBOX360W) {
+	if (xpad->xtype != XTYPE_XBOX360W && xpad->xtype != XTYPE_XBOXONE) {
 		input_dev->open = xpad_open;
 		input_dev->close = xpad_close;
 	}
@@ -1380,27 +1426,27 @@ static int xpad_init_input(struct usb_xpad *xpad)
 	if (!(xpad->mapping & MAP_STICKS_TO_NULL)) {
 		__set_bit(EV_ABS, input_dev->evbit);
 		/* set up axes */
-		for (i = 0; xpad_abs_sticks[i] >= 0; i++)
-			xpad_set_up_abs(input_dev, xpad_abs_sticks[i]);
+		for (i = 0; xpad_abs[i] >= 0; i++)
+			xpad_set_up_abs(input_dev, xpad_abs[i]);
 	}
 
 	/* set up standard buttons */
-	for (i = 0; xpad_btn_common[i] >= 0; i++)
-		__set_bit(xpad_btn_common[i], input_dev->keybit);
+	for (i = 0; xpad_common_btn[i] >= 0; i++)
+		__set_bit(xpad_common_btn[i], input_dev->keybit);
 
 	/* set up model-specific ones */
 	if (xpad->xtype == XTYPE_XBOX360 || xpad->xtype == XTYPE_XBOX360W ||
 	    xpad->xtype == XTYPE_XBOXONE) {
-		for (i = 0; xpad_btn_360[i] >= 0; i++)
-			__set_bit(xpad_btn_360[i], input_dev->keybit);
+		for (i = 0; xpad360_btn[i] >= 0; i++)
+			__set_bit(xpad360_btn[i], input_dev->keybit);
 	} else {
-		for (i = 0; xpad_btn_original[i] >= 0; i++)
-			__set_bit(xpad_btn_original[i], input_dev->keybit);
+		for (i = 0; xpad_btn[i] >= 0; i++)
+			__set_bit(xpad_btn[i], input_dev->keybit);
 	}
 
 	if (xpad->mapping & MAP_DPAD_TO_BUTTONS) {
-		for (i = 0; xpad_btn_dpad[i] >= 0; i++)
-			__set_bit(xpad_btn_dpad[i], input_dev->keybit);
+		for (i = 0; xpad_btn_pad[i] >= 0; i++)
+			__set_bit(xpad_btn_pad[i], input_dev->keybit);
 	}
 
 	/*
@@ -1411,8 +1457,8 @@ static int xpad_init_input(struct usb_xpad *xpad)
 	 */
 	if (!(xpad->mapping & MAP_DPAD_TO_BUTTONS) ||
 	    xpad->xtype == XTYPE_XBOX360W) {
-		for (i = 0; xpad_abs_dpad[i] >= 0; i++)
-			xpad_set_up_abs(input_dev, xpad_abs_dpad[i]);
+		for (i = 0; xpad_abs_pad[i] >= 0; i++)
+			xpad_set_up_abs(input_dev, xpad_abs_pad[i]);
 	}
 
 	if (xpad->mapping & MAP_TRIGGERS_TO_BUTTONS) {
@@ -1562,9 +1608,21 @@ static int xpad_probe(struct usb_interface *intf, const struct usb_device_id *id
 		error = xpad_init_input(xpad);
 		if (error)
 			goto err_deinit_output;
+
+		/*
+		 * Newer Xbox One controllers will hang and disconnect if
+		 * not initialized and read from when receiving user input.
+		 */
+		if (xpad->xtype == XTYPE_XBOXONE) {
+			error = xpad_start_input(xpad);
+			if (error)
+				goto err_deinit_input;
+		}
 	}
 	return 0;
 
+err_deinit_input:
+	xpad_deinit_input(xpad);
 err_deinit_output:
 	xpad_deinit_output(xpad);
 err_free_in_urb:
@@ -1582,6 +1640,8 @@ static void xpad_disconnect(struct usb_interface *intf)
 
 	if (xpad->xtype == XTYPE_XBOX360W)
 		xpad360w_stop_input(xpad);
+	else if (xpad->xtype == XTYPE_XBOXONE)
+		xpad_stop_input(xpad);
 
 	xpad_deinit_input(xpad);
 
@@ -1625,7 +1685,7 @@ static int xpad_suspend(struct usb_interface *intf, pm_message_t message)
 			xpad360w_poweroff_controller(xpad);
 	} else {
 		mutex_lock(&input->mutex);
-		if (input->users)
+		if (input->users || xpad->xtype == XTYPE_XBOXONE)
 			xpad_stop_input(xpad);
 		mutex_unlock(&input->mutex);
 	}
@@ -1645,7 +1705,7 @@ static int xpad_resume(struct usb_interface *intf)
 		retval = xpad360w_start_input(xpad);
 	} else {
 		mutex_lock(&input->mutex);
-		if (input->users)
+		if (input->users || xpad->xtype == XTYPE_XBOXONE)
 			retval = xpad_start_input(xpad);
 		mutex_unlock(&input->mutex);
 	}
